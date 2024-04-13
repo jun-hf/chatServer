@@ -14,7 +14,22 @@ var (
 	messages = make(chan string) // all incoming client message
 )
 
-
+func broadcaster() {
+	clients := make(map[client]bool)
+	for {
+		select {
+		case msg := <- messages:
+			for cli := range clients {
+				cli <- msg
+			}
+		case cli := <- entering:
+			clients[cli] = true
+		case cli := <-leaving:
+			delete(clients, cli)
+			close(cli)
+		}
+	}
+}
 
 func main() {
 	listen, err := net.Listen("tcp", "localhost:8080")
@@ -30,8 +45,4 @@ func main() {
 		}
 		go handleConnection(conn)
 	}
-}
-
-func handleConnection(con net.Conn) {
-	fmt.Fprintln(con, "Hello")
 }
