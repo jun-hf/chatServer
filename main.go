@@ -80,6 +80,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	log.Print("Starting chat server")
 	go broadcaster()
 	for {
 		conn, err := listen.Accept()
