@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"time"
 )
 
 type client chan<- string
@@ -32,6 +33,48 @@ func broadcaster() {
 	}
 }
 
+// change client struct to get the name from the client
+// add timer to each client request
+// create a new func to reader client's response
+
+func clientWriter(conn net.Conn, ch <-chan string) {
+	for ms := range ch {
+		fmt.Fprintln(conn, ms)
+	}
+}
+
+func clientReader(conn net.Conn, clientInput chan<- string) {
+	input := bufio.NewScanner(conn)
+	for input.Scan() {
+		clientInput <- input.Text()
+	}
+}
+
+func handleConnection(conn net.Conn) {
+	defer conn.Close()
+	clientWriteCh := make(chan string, 10)
+	clientInputCh := make(chan string)
+	go clientWriter(conn, clientWriteCh)
+	go clientReader(conn, clientInputCh)
+
+	who := conn.RemoteAddr().String()
+	clientWriteCh <- fmt.Sprintf("You are %v", who)
+	messages <- fmt.Sprintf("%v has arrived", who)
+	entering <- clientWriteCh
+
+	loop:
+	for {
+		select {
+		case input := <-clientInputCh:
+			messages <- input
+		case <-time.After(time.Second *20):
+			break loop
+		}
+	}
+	leaving <- clientWriteCh
+	messages <- fmt.Sprintf("%v has left", who)
+}
+
 func main() {
 	listen, err := net.Listen("tcp", "localhost:8080")
 	if err != nil {
@@ -45,28 +88,5 @@ func main() {
 			continue
 		}
 		go handleConnection(conn)
-	}
-}
-
-func handleConnection(conn net.Conn) {
-	defer conn.Close()
-	ch := make(chan string)
-	go clientWriter(conn, ch)
-	who := conn.RemoteAddr().String()
-	ch <- fmt.Sprintf("You are %v", who)
-	messages <- fmt.Sprintf("%v has arrived", who)
-	entering <- ch
-
-	input := bufio.NewScanner(conn)
-	for input.Scan() {
-		messages <- fmt.Sprintf("%v : %v", who, input.Text())
-	}
-	leaving <- ch
-	messages <- fmt.Sprintf("%v has left", who)
-}
-
-func clientWriter(conn net.Conn, ch <-chan string) {
-	for ms := range ch {
-		fmt.Fprintln(conn, ms)
 	}
 }
