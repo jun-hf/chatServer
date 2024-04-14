@@ -8,11 +8,14 @@ import (
 	"time"
 )
 
-type client chan<- string
+type client struct {
+	c    chan string
+	name string
+}
 
 var (
 	entering = make(chan client)
-	leaving = make(chan client)
+	leaving  = make(chan client)
 	messages = make(chan string) // all incoming client message
 )
 
@@ -20,22 +23,18 @@ func broadcaster() {
 	clients := make(map[client]bool)
 	for {
 		select {
-		case msg := <- messages:
+		case msg := <-messages:
 			for cli := range clients {
-				cli <- msg
+				cli.c <- msg
 			}
-		case cli := <- entering:
+		case cli := <-entering:
 			clients[cli] = true
 		case cli := <-leaving:
 			delete(clients, cli)
-			close(cli)
+			close(cli.c)
 		}
 	}
 }
-
-// change client struct to get the name from the client
-// add timer to each client request
-// create a new func to reader client's response
 
 func clientWriter(conn net.Conn, ch <-chan string) {
 	for ms := range ch {
@@ -57,22 +56,34 @@ func handleConnection(conn net.Conn) {
 	go clientWriter(conn, clientWriteCh)
 	go clientReader(conn, clientInputCh)
 
-	who := conn.RemoteAddr().String()
-	clientWriteCh <- fmt.Sprintf("You are %v", who)
-	messages <- fmt.Sprintf("%v has arrived", who)
-	entering <- clientWriteCh
+	timeout := time.Minute * 10
+	clientName := "no name"
+	select {
+	case name := <-clientInputCh:
+		clientName = name
+	case <-time.After(timeout):
+		conn.Close()
+		return
+	}
 
-	loop:
+	newClient := client{clientWriteCh, clientName}
+	clientWriteCh <- fmt.Sprintf("Welcome %v", clientName)
+	messages <- fmt.Sprintf("%v has arrived", clientName)
+	entering <- newClient
+
+	timer := time.NewTimer(timeout)
+loop:
 	for {
 		select {
 		case input := <-clientInputCh:
-			messages <- input
-		case <-time.After(time.Second *20):
+			messages <- fmt.Sprintf("%v: %v", clientName, input)
+			timer.Reset(timeout)
+		case <-timer.C:
 			break loop
 		}
 	}
-	leaving <- clientWriteCh
-	messages <- fmt.Sprintf("%v has left", who)
+	leaving <- newClient
+	messages <- fmt.Sprintf("%v has left", clientName)
 }
 
 func main() {
