@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"net"
@@ -44,5 +45,28 @@ func main() {
 			continue
 		}
 		go handleConnection(conn)
+	}
+}
+
+func handleConnection(conn net.Conn) {
+	defer conn.Close()
+	ch := make(chan string)
+	go clientWriter(conn, ch)
+	who := conn.RemoteAddr().String()
+	ch <- fmt.Sprintf("You are %v", who)
+	messages <- fmt.Sprintf("%v has arrived", who)
+	entering <- ch
+
+	input := bufio.NewScanner(conn)
+	for input.Scan() {
+		messages <- fmt.Sprintf("%v : %v", who, input.Text())
+	}
+	leaving <- ch
+	messages <- fmt.Sprintf("%v has left", who)
+}
+
+func clientWriter(conn net.Conn, ch <-chan string) {
+	for ms := range ch {
+		fmt.Fprintln(conn, ms)
 	}
 }
