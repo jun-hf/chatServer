@@ -25,7 +25,11 @@ func broadcaster() {
 		select {
 		case msg := <-messages:
 			for cli := range clients {
-				cli.c <- msg
+				select {
+				case cli.c <- msg:
+				default:
+					// skip client 
+				}
 			}
 		case cli := <-entering:
 			clients[cli] = true
